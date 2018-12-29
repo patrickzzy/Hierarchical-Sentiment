@@ -14,6 +14,7 @@ from Data import TuplesListDataset, Vectorizer
 from fmtl import FMTL
 from utils import *
 import sys
+import json
 
 
 def save(net,dic,path):
@@ -32,25 +33,48 @@ def tuple_batch(l):
     - Split reviews by sentences which are reordered by length
     - Build sentence ordering index to extract each sentences in training loop
     """
+    """
+    Joey:
+    return values:
+    - batch_t:      sentence word ids,  shape: [number_of_sentences, max_sentence_length]
+    - r_t:          review ratings,     shape: [number_of_reviews] (number_of_reviews is equal to the batch size)
+    - sent_order:   specifies the sentence index in batch_t of each review, shape: [number_of_reviews, max_review_length]
+    - ls:           lengths of sentences, measured by words, shape: [number_of_sentences]
+    - lr:           lengths of reviews, measured by sentences, shape: [number of reviews]
+    - review:       original reviews,   shape: [number_of_reviews]
+    """
+    debug = False
+    if debug:
+        print("In tuple_batch, type(l) is: ", type(l))
+        print("In tuple_batch, l is: ", l)
+
     _,_,review,rating = zip(*l)
-    r_t = torch.Tensor(rating).long()
+    r_t = torch.Tensor(rating).long() #joey: rating tensor
     list_rev = review
+
+    if debug:
+        print("In tuple_batch, type(review): ", type(review))
+        #print("In tuple_batch, review.size(): ", review.size())
+        print("In tuple_batch, review is: ", review)
+        print("In tuple_batch, len(review): ", len(review))
+        print("In tuple_batch, rating: ", rating)
+        print("In tuple_batch, len(rating): ", len(rating))
 
     sorted_r = sorted([(len(r),r_n,r) for r_n,r in enumerate(list_rev)],reverse=True) #index by desc rev_le
     lr,r_n,ordered_list_rev = zip(*sorted_r)
-    lr = list(lr)
-    max_sents = lr[0]
+    lr = list(lr) #joey: lengths of reviews (measured by sentences)
+    max_sents = lr[0] #joey: max document length (measured by sentences)
 
     #reordered
-    r_t = r_t[[r_n]]
-    review = [review[x] for x in r_n]
+    r_t = r_t[[r_n]] #joey: reordered rating tensors
+    review = [review[x] for x in r_n] #joey: reordered reviews
 
-    stat =  sorted([(len(s),r_n,s_n,s) for r_n,r in enumerate(ordered_list_rev) for s_n,s in enumerate(r)],reverse=True)
-    max_words = stat[0][0]
+    stat =  sorted([(len(s),r_n,s_n,s) for r_n,r in enumerate(ordered_list_rev) for s_n,s in enumerate(r)],reverse=True) #joey: sorted tuples of (sentence_length, review_number, sentence_number, sentence)
+    max_words = stat[0][0] #joey: max sentence length (measured by words)
 
-    ls = []
-    batch_t = torch.zeros(len(stat),max_words).long()                         # (sents ordered by len)
-    sent_order = torch.zeros(len(ordered_list_rev),max_sents).long().fill_(0) # (rev_n,sent_n)
+    ls = [] #joey: lengths of sentences (measured by words)
+    batch_t = torch.zeros(len(stat),max_words).long()                         # (sents ordered by len) #joey: shape: (number_of_sentences, max_sentence_length), contains the word ids of the specific sentence
+    sent_order = torch.zeros(len(ordered_list_rev),max_sents).long().fill_(0) # (rev_n,sent_n) #joey: shape: (number_of_reviews, max_review_length), specifies the index+1 in "stat" of the (review_number, sentence_number) sentence
 
     for i,s in enumerate(stat):
         sent_order[s[1],s[2]] = i+1 #i+1 because 0 is for empty.
@@ -60,7 +84,9 @@ def tuple_batch(l):
     return batch_t,r_t,sent_order,ls,lr,review
 
 
+
 def train(epoch,net,dataset,device,msg="val/test",optimize=False,optimizer=None,criterion=None):
+    debug = False
 
     if optimize:
         net.train()
@@ -75,6 +101,13 @@ def train(epoch,net,dataset,device,msg="val/test",optimize=False,optimizer=None,
 
     with tqdm(total=len(dataset),desc=msg) as pbar:
         for iteration, (batch_t,r_t,sent_order,ls,lr,review) in enumerate(dataset):
+            if debug:
+                print("batch_t: ", batch_t)
+                print("r_t: ", r_t)
+                print("sent_order: ", sent_order)
+                print("ls: ", ls)
+                print("lr: ", lr)
+                print("review: ", review)
 
             data = (batch_t,r_t,sent_order)
             data = list(map(lambda x:x.to(device),data))
@@ -100,10 +133,9 @@ def train(epoch,net,dataset,device,msg="val/test",optimize=False,optimizer=None,
 
             pbar.update(1)
             pbar.set_postfix({"acc":ok_all/(iteration+1),"CE":epoch_loss/(iteration+1),"mseloss":mean_mse/(iteration+1),"rmseloss":mean_rmse/(iteration+1)})
+            break
 
     print("===> Epoch {} Complete: Avg. Loss: {:.4f}, {}% accuracy".format(epoch, epoch_loss /len(dataset),ok_all/len(dataset)))
-
-
 
 def load(args):
 
@@ -120,7 +152,8 @@ def load(args):
         if args.emb:
             tensor,wdict = load_embeddings(args.emb,offset=2)
         else:     
-            wdict = data_tl.get_field_dict("review",key_iter=trainit,offset=2, max_count=args.max_feat, iter_func=(lambda x: (w for s in x for w in s )))
+            wdict = data_tl.get_field_dict("review", key_iter=trainit, offset=2, max_count=args.max_feat, iter_func=(lambda x: (str(w).lower() for s in x for w in s)))
+            #wdict = data_tl.get_field_dict("review", key_iter=trainit, offset=2, max_count=args.max_feat, iter_func=(lambda x: (s for s in x)))
 
         wdict["_pad_"] = 0
         wdict["_unk_"] = 1
@@ -156,9 +189,9 @@ def load(args):
 
 def main(args):
 
+    import pdb; pdb.set_trace()
     print(32*"-"+"\nHierarchical Attention Network:\n" + 32*"-")
     data_tl, (train_set, val_set, test_set), net, wdict = load(args)
-
 
     dataloader = DataLoader(data_tl.indexed_iter(train_set), batch_size=args.b_size, shuffle=True, num_workers=3, collate_fn=tuple_batch,pin_memory=True)
     dataloader_valid = DataLoader(data_tl.indexed_iter(val_set), batch_size=args.b_size, shuffle=False, num_workers=3, collate_fn=tuple_batch)

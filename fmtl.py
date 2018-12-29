@@ -1,5 +1,6 @@
 from collections import Counter
 import itertools
+import spacy
 
 
 class FMTL_iterator():		
@@ -33,13 +34,18 @@ class FMTL():
     """
 
     def __init__(self, tuplelist,rows=None):
-        if type(rows) is tuple or list:
-            rows = {x:i for i,x in enumerate(rows)}
+        #print("FTML __init__() type(rows): ", type(rows))
+        #print("FTML __init__() rows: ", rows)
+        if type(rows) is dict:
+            self.rows = rows
+        elif type(rows) is tuple or list:
+            self.rows = {x:i for i,x in enumerate(rows)}
+        #print("FTML __init__() rows 1: ", rows)
             
         self.tuplelist = tuplelist
         self.mappings = {}
         self.unknown = {}
-        self.rows = rows
+        #self.rows = rows
        
     def __len__(self):
         return len(self.tuplelist)
@@ -92,8 +98,15 @@ class FMTL():
     
 
     def _rec_apply(self,f,item,unk=None):
+        #Joey: TODO: item is spacy.Doc, not a list or tuple, fix this
         if isinstance(item,list) or isinstance(item,tuple):
             return type(item)(map(lambda x:self._rec_apply(f,x,unk), item))
+        elif isinstance(item, spacy.tokens.doc.Doc):
+            result_sents = []
+            for sent in item.sents:
+                words = [str(word).lower() for word in sent]
+                result_sents.append(map(lambda x:self._rec_apply(f, x, unk), words))
+            return result_sents
         else:
             try:
                 return f(item)
@@ -141,11 +154,11 @@ class FMTL():
         field = self._f2i(field)
         d =  dict(Counter(self.field_gen(field,key_iter=key_iter)))
         sumv = sum([v for k,v in d.items()])
-        class_per = {k:(v/sumv) for k,v  in d.items()}
+        class_per = {k:(v/float(sumv)) for k,v  in d.items()}
 
         if verbose:
-            print(d)
-            print(class_per)
+            print("get_stats, class count distribution: ", d)
+            print("get_stats, class percentage: ", class_per)
 
         return d,class_per
 
@@ -156,7 +169,8 @@ class FMTL():
         field_gen = self.field_gen(self._f2i(field),key_iter=key_iter)
 
         if iter_func is not None:
-            field_gen = itertools.chain.from_iterable((x for x in iter_func(field_gen)))
+            #field_gen = itertools.chain.from_iterable((x for x in iter_func(field_gen)))
+            field_gen = itertools.chain((x for x in iter_func(field_gen)))
             
         d =  Counter(field_gen)
 

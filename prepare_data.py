@@ -51,12 +51,44 @@ def build_dataset(args):
     print("Split distribution is the following:")
     print(count)
 
+    #for sent in data[0][2].sents:
+    #    for word in sent:
+    #        print(word)
+
     return {"data":data,"splits":splits,"rows":("user_id","item_id","review","rating")}
 
+def build_dataset_debug(args):
+
+    print("Building dataset from : {}".format(args.input))
+    print("-> Building {} random splits".format(args.nb_splits))
+
+    nlp = spacy.load('en', create_pipeline=custom_pipeline)
+    #nlp = spacy.load('en')
+    #gen_a,gen_b = itertools.tee(data_generator(args.input),2)
+    #data = [(z["reviewerID"],z["asin"],tok,z["overall"]) for z,tok in zip(tqdm((z for z in gen_a),desc="reading file"),nlp.pipe((x["reviewText"] for x in gen_b), batch_size=1000000, n_threads=8))]
+
+    #for token in nlp.pipe((x["reviewText"] for x in data_generator(args.input)), batch_size=1000000, n_threads=8):
+    #    print(token)
+    gen_a, gen_b = itertools.tee(data_generator(args.input), 2)
+    #data = [x for x in nlp.pipe((x["reviewText"] for x in gen_b), batch_size=1000000, n_threads=8)]
+    #data2 = [(z["reviewerID"], z["asin"], z["overall"]) for z in tqdm((z for z in gen_a), desc="reading file")]
+    data3 = [(z["reviewerID"],z["asin"],tok,z["overall"]) for z,tok in zip(tqdm((z for z in gen_a),desc="reading file"),nlp.pipe((x["reviewText"] for x in gen_b), batch_size=1000000, n_threads=8))]
+    print("len(data3): ", len(data3))
+    print("len(data3[0]): ", len(data3[0]))
+    print("data3[0][2]: ", data3[0][2])
+    print("type(data3[0][2]): ", type(data3[0][2]))
+    for sent in data3[0][2].sents:
+        for word in sent:
+            print(word)
+    #print(len(data))
+    #print(type(data[0]))
+
+    #return {"data":data,"splits":splits,"rows":("user_id","item_id","review","rating")}
 
 def main(args):
     ds = build_dataset(args)
     pkl.dump(ds,open(args.output,"wb"))
+    #build_dataset_debug(args)
 
 if __name__ == '__main__':
 

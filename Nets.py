@@ -11,16 +11,18 @@ class EmbedAttention(nn.Module):
         self.att_w = nn.Linear(att_size,1,bias=False)
 
     def forward(self,input,len_s):
-        att = self.att_w(input).squeeze(-1)
-        out = self._masked_softmax(att,len_s).unsqueeze(-1)
+        # input: [max_sent_len, num_sent, att_size]
+        # len_s: [num_sent]
+        att = self.att_w(input).squeeze(-1) # [max_sent_len, num_sent]
+        out = self._masked_softmax(att,len_s).unsqueeze(-1) # [max_sent_len, num_sent, 1]
         return out
-        
+    
     
     def _masked_softmax(self,mat,len_s):
         
         #print(len_s.type())
         len_s = len_s.type_as(mat.data)#.long()
-        idxes = torch.arange(0,int(len_s[0]),out=mat.data.new(int(len_s[0])).long()).unsqueeze(1)
+        idxes = torch.arange(0,int(len_s[0]),out=mat.data.new(int(len_s[0])).long()).unsqueeze(1) # [max_sent_len, 1]
         mask = (idxes.float()<len_s.unsqueeze(0)).float()
 
         exp = torch.exp(mat) * mask
@@ -46,12 +48,14 @@ class AttentionalBiRNN(nn.Module):
     def forward(self, packed_batch):
         
         rnn_sents,_ = self.rnn(packed_batch)
-        enc_sents,len_s = torch.nn.utils.rnn.pad_packed_sequence(rnn_sents)
+        enc_sents,len_s = torch.nn.utils.rnn.pad_packed_sequence(rnn_sents) 
+        # enc_sents: [max_sentence_length, number_of_sentences, hidden_size * 2] note: batch_first is False
+        # len_s: [number_of_sentences]
 
-        emb_h = F.tanh(self.lin(enc_sents))
+        emb_h = F.tanh(self.lin(enc_sents)) # [max_sentence_length, number_of_sentences, hidden_size * 2]
 
-        attended = self.emb_att(emb_h,len_s) * enc_sents
-        return attended.sum(0,True).squeeze(0)
+        attended = self.emb_att(emb_h,len_s) * enc_sents # [max_sent_len, num_sent, hidden_size * 2]
+        return attended.sum(0,True).squeeze(0) # [num_sent, hidden_size * 2]
 
 
 
@@ -95,22 +99,28 @@ class HAN(nn.Module):
     
     def _reorder_sent(self,sents,sent_order):
         
-        sents = F.pad(sents,(0,0,1,0)) #adds a 0 to the top
-        revs = sents[sent_order.view(-1)]
-        revs = revs.view(sent_order.size(0),sent_order.size(1),sents.size(1))
+        sents = F.pad(sents,(0,0,1,0)) # adds a 0 to the top, shape: [num_sent + 1, hidden_size * 2]
+        revs = sents[sent_order.view(-1)] # [num_reviews * max_review_len, hidden_size * 2]
+        revs = revs.view(sent_order.size(0),sent_order.size(1),sents.size(1)) # [num_reviews, max_review_len, hidden_size * 2]
 
         return revs
  
 
     def forward(self, batch_reviews,sent_order,ls,lr):
+        '''
+        batch_reviews: sentence word ids, shape: [number_of_sentences, max_sentence_length]
+        sent_order: specifies the sentence index in batch_reviews of each review, shape: [number_of_reviews, max_review_length] (number_of_reviews is equal to the batch size)
+        ls: lengths of sentences, measured by words, shape: [number_of_sentences]
+        lr: lengths of reviews, measured by sentences, shape: [number of reviews]
+        '''
 
-        emb_w = F.dropout(self.embed(batch_reviews),training=self.training)
-        packed_sents = torch.nn.utils.rnn.pack_padded_sequence(emb_w, ls,batch_first=True)
-        sent_embs = self.word(packed_sents)
-        rev_embs = self._reorder_sent(sent_embs,sent_order)
+        emb_w = F.dropout(self.embed(batch_reviews),training=self.training) # [number_of_sentences, max_sentence_length, embedding_size]
+        packed_sents = torch.nn.utils.rnn.pack_padded_sequence(emb_w, ls, batch_first=True)
+        sent_embs = self.word(packed_sents) # [num_sent, hidden_size * 2]
+        rev_embs = self._reorder_sent(sent_embs,sent_order) # [num_reviews, max_review_len, hidden_size * 2]
         packed_rev = torch.nn.utils.rnn.pack_padded_sequence(rev_embs, lr,batch_first=True)
-        doc_embs = self.sent(packed_rev)
-        out = self.lin_out(doc_embs)
+        doc_embs = self.sent(packed_rev) # [num_reviews, hidden_size * 2]
+        out = self.lin_out(doc_embs) # [num_reviews, num_class]
 
         return out
 
